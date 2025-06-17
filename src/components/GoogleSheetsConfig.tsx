@@ -69,14 +69,14 @@ const GoogleSheetsConfig = ({ onConnectionChange }: GoogleSheetsConfigProps) => 
     }
 
     setIsTesting(true);
+    console.log("Testing webhook URL:", webhookUrl);
 
     try {
-      await fetch(webhookUrl, {
+      const response = await fetch(webhookUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        mode: 'no-cors',
         body: JSON.stringify({
           timestamp: new Date().toISOString(),
           title: 'ทดสอบการเชื่อมต่อ',
@@ -89,14 +89,32 @@ const GoogleSheetsConfig = ({ onConnectionChange }: GoogleSheetsConfigProps) => 
         }),
       });
 
-      toast({
-        title: "ส่งข้อมูลทดสอบแล้ว",
-        description: "กรุณาตรวจสอบใน Google Sheets ว่าได้รับข้อมูลหรือไม่",
-      });
+      console.log("Response status:", response.status);
+      
+      if (response.status === 401) {
+        toast({
+          title: "ข้อผิดพลาด 401 Unauthorized",
+          description: "กรุณาตรวจสอบการตั้งค่า Apps Script - ต้องเปลี่ยน 'Execute as' เป็น 'Me' และ 'Who has access' เป็น 'Anyone'",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (response.ok) {
+        const result = await response.text();
+        console.log("Success response:", result);
+        toast({
+          title: "ทดสอบสำเร็จ!",
+          description: "เชื่อมต่อ Google Sheets ได้แล้ว กรุณาตรวจสอบข้อมูลใน Google Sheets",
+        });
+      } else {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
     } catch (error) {
+      console.error("Error details:", error);
       toast({
         title: "เกิดข้อผิดพลาด",
-        description: "ไม่สามารถส่งข้อมูลทดสอบได้",
+        description: `ไม่สามารถเชื่อมต่อได้: ${error instanceof Error ? error.message : 'Unknown error'}`,
         variant: "destructive",
       });
     } finally {
@@ -132,18 +150,35 @@ const GoogleSheetsConfig = ({ onConnectionChange }: GoogleSheetsConfigProps) => 
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
+          <Alert className="border-red-200 bg-red-50">
+            <AlertCircle className="h-4 w-4 text-red-600" />
+            <AlertDescription className="text-red-800">
+              <strong>⚠️ สำคัญมาก - แก้ไขข้อผิดพลาด 401:</strong>
+              <ol className="list-decimal list-inside mt-2 space-y-1 text-sm">
+                <li>ใน Google Apps Script Editor</li>
+                <li>คลิก <strong>Deploy → Manage deployments</strong></li>
+                <li>คลิกไอคอน ✏️ (Edit) ของ deployment</li>
+                <li>ตั้งค่า <strong>Execute as: Me</strong></li>
+                <li>ตั้งค่า <strong>Who has access: Anyone</strong></li>
+                <li>คลิก <strong>Done</strong> แล้ว <strong>Deploy</strong></li>
+                <li>คัดลอก URL ใหม่มาใส่ด้านล่าง</li>
+              </ol>
+            </AlertDescription>
+          </Alert>
+
           <Alert>
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>
-              <strong>วิธีการตั้งค่า Google Sheets:</strong>
+              <strong>วิธีการตั้งค่า Google Sheets (ครั้งแรก):</strong>
               <ol className="list-decimal list-inside mt-2 space-y-1 text-sm">
                 <li>สร้าง Google Sheets ใหม่</li>
                 <li>ไปที่ Extensions → Apps Script</li>
                 <li>วางโค้ด Apps Script ด้านล่างแล้วบันทึก</li>
                 <li>คลิก Deploy → New deployment</li>
                 <li>เลือก Type เป็น Web app</li>
-                <li>ตั้งค่า Execute as: Me, Who has access: Anyone</li>
-                <li>คัดลอก Web app URL มาใส่ด้านล่าง</li>
+                <li><strong>Execute as: Me</strong> (สำคัญ!)</li>
+                <li><strong>Who has access: Anyone</strong> (สำคัญ!)</li>
+                <li>คลิก Deploy และคัดลอก URL</li>
               </ol>
             </AlertDescription>
           </Alert>
@@ -204,33 +239,50 @@ const GoogleSheetsConfig = ({ onConnectionChange }: GoogleSheetsConfigProps) => 
         'Timestamp', 'Title', 'Description', 'Severity', 
         'Status', 'URL', 'Browser', 'Steps'
       ]]);
+      
+      // Format headers
+      var headerRange = sheet.getRange(1, 1, 1, 8);
+      headerRange.setFontWeight('bold');
+      headerRange.setBackground('#f0f0f0');
     }
     
     // Add the bug data to the sheet
     sheet.appendRow([
       new Date(data.timestamp),
-      data.title,
-      data.description,
-      data.severity,
-      data.status,
+      data.title || '',
+      data.description || '',
+      data.severity || '',
+      data.status || '',
       data.url || '',
       data.browser || '',
       data.steps || ''
     ]);
     
+    // Auto-resize columns
+    sheet.autoResizeColumns(1, 8);
+    
     return ContentService
-      .createTextOutput(JSON.stringify({result: 'success'}))
+      .createTextOutput(JSON.stringify({
+        result: 'success', 
+        message: 'Data added successfully',
+        timestamp: new Date().toISOString()
+      }))
       .setMimeType(ContentService.MimeType.JSON);
       
   } catch (error) {
+    console.error('Error in doPost:', error);
     return ContentService
-      .createTextOutput(JSON.stringify({result: 'error', error: error.toString()}))
+      .createTextOutput(JSON.stringify({
+        result: 'error', 
+        error: error.toString(),
+        timestamp: new Date().toISOString()
+      }))
       .setMimeType(ContentService.MimeType.JSON);
   }
 }`}</code></pre>
           </div>
           <p className="text-sm text-gray-600 mt-2">
-            คัดลอกโค้ดนี้ไปวางใน Google Apps Script Editor
+            คัดลอกโค้ดนี้ไปวางใน Google Apps Script Editor และบันทึกด้วยชื่อ "doPost"
           </p>
         </CardContent>
       </Card>
